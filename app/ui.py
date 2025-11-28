@@ -73,6 +73,15 @@ def render_sidebar():
         help="If checked, the tax savings from Traditional 401k contributions are invested in a taxable brokerage account. If unchecked, they are assumed to be spent.",
     )
 
+    roth_split = st.sidebar.slider(
+        "Split Strategy: Roth %",
+        min_value=0,
+        max_value=100,
+        value=50,
+        step=5,
+        help="Percentage of contributions to go to Roth 401k for the 'Split' strategy.",
+    )
+
     # Investment Returns
     st.sidebar.subheader("Investment Returns")
     accumulation_return = (
@@ -109,6 +118,7 @@ def render_sidebar():
         "invest_tax_savings": invest_tax_savings,
         "accumulation_return": accumulation_return,
         "retirement_return": retirement_return,
+        "roth_split_percent": roth_split / 100.0,
     }
 
 

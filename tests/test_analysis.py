@@ -179,3 +179,78 @@ def test_combine_simulation_results():
     assert combined.iloc[3]["Year"] == 3
     # Check Age
     assert combined.iloc[2]["Age"] == 32
+
+
+def test_split_strategy():
+    from app.analysis import simulate_accumulation_strategy
+
+    # Test 50/50 Split
+    df = simulate_accumulation_strategy(
+        annual_income=100000,
+        current_age=30,
+        years=1,
+        return_rate=0.0,
+        contribution_input=10000,
+        use_max_contribution=False,
+        match_percent=0.0,
+        match_limit=0.0,
+        invest_tax_savings=False,
+        annual_raise=0.0,
+        inflation_rate=0.0,
+        capital_gains_rate=0.15,
+        roth_split=0.5,
+    )
+
+    row = df.iloc[0]
+    # Total Contribution should be 10000
+    assert row["Contribution"] == 10000
+    # PreTax Balance should be 5000 (50%)
+    assert row["Balance_PreTax"] == 5000
+    # Roth Balance should be 5000 (50%)
+    assert row["Balance_Roth"] == 5000
+    # Taxable Income should be reduced by 5000 (Trad portion)
+    # Gross Income 100k - 5k = 95k
+    # We can't check taxable income directly as it's internal, but we can check Federal Tax
+    # But Federal Tax depends on brackets.
+    # Let's check Total Balance
+    assert row["Total_Balance"] == 10000
+
+    # Test 100% Roth
+    df_roth = simulate_accumulation_strategy(
+        annual_income=100000,
+        current_age=30,
+        years=1,
+        return_rate=0.0,
+        contribution_input=10000,
+        use_max_contribution=False,
+        match_percent=0.0,
+        match_limit=0.0,
+        invest_tax_savings=False,
+        annual_raise=0.0,
+        inflation_rate=0.0,
+        capital_gains_rate=0.15,
+        roth_split=1.0,
+    )
+    row_roth = df_roth.iloc[0]
+    assert row_roth["Balance_PreTax"] == 0
+    assert row_roth["Balance_Roth"] == 10000
+
+    # Test 100% Trad
+    df_trad = simulate_accumulation_strategy(
+        annual_income=100000,
+        current_age=30,
+        years=1,
+        return_rate=0.0,
+        contribution_input=10000,
+        use_max_contribution=False,
+        match_percent=0.0,
+        match_limit=0.0,
+        invest_tax_savings=False,
+        annual_raise=0.0,
+        inflation_rate=0.0,
+        capital_gains_rate=0.15,
+        roth_split=0.0,
+    )
+    row_trad = df_trad.iloc[0]
+    assert row_trad["Balance_PreTax"] == 10000
+    assert row_trad["Balance_Roth"] == 0

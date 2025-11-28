@@ -147,68 +147,117 @@ def run_full_simulation(
     annual_raise_percent: float = 0.0,
     inflation_rate: float = DEFAULT_INFLATION_RATE,
     capital_gains_rate: float = DEFAULT_CAPITAL_GAINS_RATE,
+    roth_split_percent: float = 0.5,
 ) -> Dict[str, pd.DataFrame]:
     accumulation_years = retirement_age - current_age
     accumulation_years = retirement_age - current_age
 
-    # --- Accumulation Phase ---
-    accumulation_401k = []
-    accumulation_roth = []
+    # --- Run Simulations ---
+    # 1. Traditional Strategy (100% PreTax)
+    accumulation_401k = simulate_accumulation_strategy(
+        annual_income,
+        current_age,
+        accumulation_years,
+        accumulation_return,
+        contribution_input,
+        use_max_contribution,
+        employer_match_percent,
+        employer_match_limit,
+        invest_tax_savings,
+        annual_raise_percent,
+        inflation_rate,
+        capital_gains_rate,
+        roth_split=0.0,
+    )
 
-    balance_401k_trad = 0.0  # Pre-tax balance
-    balance_401k_taxable = 0.0  # Taxable brokerage from tax savings
+    # 2. Roth Strategy (100% Roth)
+    accumulation_roth = simulate_accumulation_strategy(
+        annual_income,
+        current_age,
+        accumulation_years,
+        accumulation_return,
+        contribution_input,
+        use_max_contribution,
+        employer_match_percent,
+        employer_match_limit,
+        invest_tax_savings,
+        annual_raise_percent,
+        inflation_rate,
+        capital_gains_rate,
+        roth_split=1.0,
+    )
 
-    # For Roth strategy, we might also have a taxable account if we want to compare "equal cost"
-    # The original analysis assumed:
-    # 401k Strategy: Contribute $X to 401k. Tax savings $Y invested in Taxable. Total Cost = $X - $Y.
-    # Roth Strategy: Contribute $X to Roth. Total Cost = $X.
-    # This is NOT equal cost.
-    # Equal cost would be:
-    # 401k: Contribute $Limit. Cost = $Limit * (1 - TaxRate).
-    # Roth: Contribute $Limit. Cost = $Limit.
-    # To make them comparable, the notebook did:
-    # "Compare strategies based on equal after-tax standard of living" -> This was for withdrawals.
-    # For contributions:
-    # "401K extra savings are taxed: 401k pre-tax savings that are invested are also taxed"
-    # "Tax savings from 401K are invested"
-    # So:
-    # 401k Contribution = Max Limit
-    # Roth Contribution = Max Limit
-    # Tax Savings = Max Limit * Marginal Rate
-    # 401k Strategy invests Tax Savings into Taxable Account.
-    # Roth Strategy invests 0 into Taxable Account (because no tax savings).
-    # This implies the person has enough cash flow to max out Roth (which costs more after-tax).
-    # This effectively compares:
-    # Option A: Max 401k + Invest Tax Savings
-    # Option B: Max Roth
-    # This assumes the "Budget" is equal to (Max Limit). Wait.
-    # If I max 401k ($23k), my take home reduces by $23k * (1-Tax).
-    # If I max Roth ($23k), my take home reduces by $23k.
-    # So Option B costs more.
-    # The notebook says: "Both strategies contribute the same dollar amount to retirement accounts".
-    # And "For 401K strategy: tax savings are invested in taxable account".
-    # This implies the user has the cashflow to support the Roth contribution.
-    # So for the 401k case, they have "extra" cashflow equal to the tax savings, which they invest.
-    # This is a fair comparison of "What if I max out my accounts?".
+    # 3. Split Strategy (User Defined Split)
+    accumulation_split = simulate_accumulation_strategy(
+        annual_income,
+        current_age,
+        accumulation_years,
+        accumulation_return,
+        contribution_input,
+        use_max_contribution,
+        employer_match_percent,
+        employer_match_limit,
+        invest_tax_savings,
+        annual_raise_percent,
+        inflation_rate,
+        capital_gains_rate,
+        roth_split=roth_split_percent,
+    )
 
-    # We will stick to this logic:
-    # 1. Determine Contribution Amount (User input or Max Limit).
-    # 2. Calculate Employer Match.
-    # 3. 401k Strategy:
-    #    - Add Contribution + Match to Pre-Tax 401k.
-    #    - Calculate Tax Savings = Contribution * Marginal Rate.
-    #    - Add Tax Savings to Taxable Account.
-    # 4. Roth Strategy:
-    #    - Add Contribution to Roth 401k.
-    #    - Add Match to Pre-Tax 401k (Employer match is always pre-tax).
-    #    - Taxable Account = 0 (No tax savings).
+    # --- Distribution Phase ---
+    # Helper to run distribution for a given accumulation result
+    def run_dist_for_acc(acc_df):
+        last_row = acc_df.iloc[-1]
+        return run_distribution_simulation(
+            last_row["Balance_PreTax"],
+            last_row["Balance_Roth"],
+            last_row["Balance_Taxable"],
+            retirement_age,
+            final_age,
+            retirement_return,
+        )
 
-    for year in range(accumulation_years):
+    dist_401k = run_dist_for_acc(accumulation_401k)
+    dist_roth = run_dist_for_acc(accumulation_roth)
+    dist_split = run_dist_for_acc(accumulation_split)
+
+    return {
+        "accumulation_401k": accumulation_401k,
+        "accumulation_roth": accumulation_roth,
+        "accumulation_split": accumulation_split,
+        "distribution_401k": pd.DataFrame(dist_401k),
+        "distribution_roth": pd.DataFrame(dist_roth),
+        "distribution_split": pd.DataFrame(dist_split),
+    }
+
+
+def simulate_accumulation_strategy(
+    annual_income,
+    current_age,
+    years,
+    return_rate,
+    contribution_input,
+    use_max_contribution,
+    match_percent,
+    match_limit,
+    invest_tax_savings,
+    annual_raise,
+    inflation_rate,
+    capital_gains_rate,
+    roth_split: float,  # 0.0 to 1.0
+) -> pd.DataFrame:
+    results = []
+
+    balance_pretax = 0.0
+    balance_roth = 0.0
+    balance_taxable = 0.0
+
+    for year in range(years):
         age = current_age + year
         calendar_year = 2024 + year
 
         # Grow Income
-        current_annual_income = annual_income * ((1 + annual_raise_percent) ** year)
+        current_annual_income = annual_income * ((1 + annual_raise) ** year)
 
         limits = get_contribution_limit(age, calendar_year, inflation_rate)
         max_limit = limits["total"]
@@ -221,61 +270,78 @@ def run_full_simulation(
                 user_contribution = current_annual_income * contribution_input
             else:
                 user_contribution = contribution_input
-            # Cap at limit
             user_contribution = min(user_contribution, max_limit)
 
-        # Employer Match
+        # Employer Match (Always PreTax)
         match_amount = 0
-        if employer_match_limit > 0:
+        if match_limit > 0:
             matchable_contribution = min(
-                user_contribution, current_annual_income * employer_match_limit
+                user_contribution, current_annual_income * match_limit
             )
-            match_amount = matchable_contribution * employer_match_percent
+            match_amount = matchable_contribution * match_percent
 
-        # --- 401k Strategy ---
+        # Split Contribution
+        roth_contribution = user_contribution * roth_split
+        trad_contribution = user_contribution * (1 - roth_split)
+
         # Invest
-        balance_401k_trad += user_contribution + match_amount
+        balance_pretax += trad_contribution + match_amount
+        balance_roth += roth_contribution
 
-        # Tax Savings
-        marginal_rate = calculate_marginal_tax_rate(current_annual_income)
-        tax_savings = user_contribution * marginal_rate
+        # Tax Calculation
+        # Taxable Income = Gross Income - Trad Contribution
+        taxable_income_for_fed_tax = current_annual_income - trad_contribution
+        federal_income_tax = calculate_federal_tax(taxable_income_for_fed_tax)
+        marginal_rate = calculate_marginal_tax_rate(taxable_income_for_fed_tax)
+
+        # Tax Savings Logic
+        # We compare against a baseline of "No Deduction" (i.e. All Roth or just paying tax on full income).
+        # Tax Savings = Trad Contribution * Marginal Rate
+        # This is the "extra cash" generated by choosing Trad over Roth/Taxable.
+        tax_savings = trad_contribution * marginal_rate
 
         if invest_tax_savings:
-            balance_401k_taxable += tax_savings
+            balance_taxable += tax_savings
 
         # Growth
-        balance_401k_trad *= 1 + accumulation_return
-        balance_401k_taxable *= 1 + accumulation_return
+        balance_pretax *= 1 + return_rate
+        balance_roth *= 1 + return_rate
+        balance_taxable *= 1 + return_rate
 
         # Tax Drag on Taxable
-        taxable_gains = balance_401k_taxable - (
-            balance_401k_taxable / (1 + accumulation_return)
-        )
+        taxable_gains = balance_taxable - (balance_taxable / (1 + return_rate))
         tax_on_gains = taxable_gains * capital_gains_rate
-        balance_401k_taxable -= tax_on_gains
-
-        # Tax Rates
-        # For Traditional 401k, contribution is tax-deductible
-        taxable_income_for_fed_tax = current_annual_income - user_contribution
-        federal_income_tax = calculate_federal_tax(taxable_income_for_fed_tax)
+        balance_taxable -= tax_on_gains
 
         total_tax = federal_income_tax + tax_on_gains
+
+        # Roth Upfront Tax (Informational)
+        # We calculate what the tax *would* be on the Roth portion if it were grossed up?
+        # Or just the tax paid on the income used to fund it?
+        # It's included in federal_income_tax.
+        # But for the specific column "Income_Tax_Paid_On_Contribution":
+        # It's the tax attributable to the Roth contribution.
+        # Approx: Roth Contribution / (1 - Marginal) * Marginal
+        roth_pretax_equivalent = roth_contribution / (1 - marginal_rate)
+        roth_tax_paid = roth_pretax_equivalent - roth_contribution
 
         effective_tax_rate = (
             total_tax / current_annual_income if current_annual_income > 0 else 0
         )
 
-        accumulation_401k.append(
+        results.append(
             {
                 "Year": year,
                 "Age": age,
                 "Gross_Income": current_annual_income,
                 "Contribution": user_contribution,
                 "Match": match_amount,
-                "Balance_PreTax": balance_401k_trad,
-                "Balance_Taxable": balance_401k_taxable,
-                "Total_Balance": balance_401k_trad + balance_401k_taxable,
+                "Balance_PreTax": balance_pretax,
+                "Balance_Roth": balance_roth,
+                "Balance_Taxable": balance_taxable,
+                "Total_Balance": balance_pretax + balance_roth + balance_taxable,
                 "Tax_On_Brokerage_Gains": tax_on_gains,
+                "Income_Tax_Paid_On_Contribution": roth_tax_paid,
                 "Tax_Savings": tax_savings,
                 "Marginal_Tax_Rate": marginal_rate,
                 "Effective_Tax_Rate": effective_tax_rate,
@@ -284,107 +350,7 @@ def run_full_simulation(
             }
         )
 
-        # --- Roth Strategy ---
-        # Invest
-        # Roth Contribution goes to Roth Bucket
-        # Match Contribution goes to Pre-Tax Bucket (Standard 401k rule)
-        # We need to track Pre-Tax bucket for Roth Strategy too!
-
-        # Let's use separate variables for Roth Strategy
-        if year == 0:
-            roth_strat_balance_roth = 0.0
-            roth_strat_balance_pretax = 0.0  # From match
-            # roth_strat_balance_taxable = 0.0 # Should be 0
-
-        roth_strat_balance_roth += user_contribution
-        roth_strat_balance_pretax += match_amount
-
-        # Growth
-        roth_strat_balance_roth *= 1 + accumulation_return
-        roth_strat_balance_pretax *= 1 + accumulation_return
-
-        # Roth Tax Calculation
-        # The user contributes 'user_contribution' AFTER tax.
-        # Taxable Income is the full Gross Income.
-        federal_income_tax = calculate_federal_tax(current_annual_income)
-
-        # We also tracked "Income_Tax_Paid_On_Contribution" separately for analysis,
-        # but it is part of the Federal Income Tax.
-        # Total Tax for Roth strategy in accumulation is just the Federal Income Tax
-        # (assuming no taxable brokerage account in this simplified comparison).
-        total_tax = federal_income_tax
-
-        marginal_rate = calculate_marginal_tax_rate(current_annual_income)
-        roth_pretax_equivalent = user_contribution / (1 - marginal_rate)
-        roth_tax_paid = roth_pretax_equivalent - user_contribution
-
-        effective_tax_rate = (
-            total_tax / current_annual_income if current_annual_income > 0 else 0
-        )
-
-        accumulation_roth.append(
-            {
-                "Year": year,
-                "Age": age,
-                "Gross_Income": current_annual_income,
-                "Contribution": user_contribution,
-                "Match": match_amount,
-                "Balance_Roth": roth_strat_balance_roth,
-                "Balance_PreTax": roth_strat_balance_pretax,
-                "Total_Balance": roth_strat_balance_roth + roth_strat_balance_pretax,
-                "Income_Tax_Paid_On_Contribution": roth_tax_paid,  # Track the upfront tax
-                "Tax_Savings": 0,
-                "Marginal_Tax_Rate": marginal_rate,
-                "Effective_Tax_Rate": effective_tax_rate,
-                "Federal_Income_Tax": federal_income_tax,
-                "Total_Tax": total_tax,
-            }
-        )
-
-        # Update loop variables for next iteration
-        # (Implicitly handled by updating the balance variables)
-
-    # --- Distribution Phase ---
-    # We need to optimize withdrawals.
-    # 401k Strategy: Has PreTax + Taxable.
-    # Roth Strategy: Has Roth + PreTax (from match).
-
-    # We reuse the optimization logic but adapted for the new buckets.
-
-    # 401k Strategy Totals at Retirement
-    final_401k_pretax = balance_401k_trad
-    final_401k_taxable = balance_401k_taxable
-
-    # Roth Strategy Totals at Retirement
-    final_roth_roth = roth_strat_balance_roth
-    final_roth_pretax = roth_strat_balance_pretax
-
-    # Run distribution for 401k Strategy
-    dist_401k = run_distribution_simulation(
-        final_401k_pretax,
-        0,
-        final_401k_taxable,
-        retirement_age,
-        final_age,
-        retirement_return,
-    )
-
-    # Run distribution for Roth Strategy
-    dist_roth = run_distribution_simulation(
-        final_roth_pretax,
-        final_roth_roth,
-        0,
-        retirement_age,
-        final_age,
-        retirement_return,
-    )
-
-    return {
-        "accumulation_401k": pd.DataFrame(accumulation_401k),
-        "accumulation_roth": pd.DataFrame(accumulation_roth),
-        "distribution_401k": pd.DataFrame(dist_401k),
-        "distribution_roth": pd.DataFrame(dist_roth),
-    }
+    return pd.DataFrame(results)
 
 
 def calculate_annual_withdrawal_need(

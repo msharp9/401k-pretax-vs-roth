@@ -51,16 +51,20 @@ results = run_full_simulation(
     else 0,
     invest_tax_savings=config["invest_tax_savings"],
     annual_raise_percent=config["annual_raise"],
+    roth_split_percent=config["roth_split_percent"],
 )
 
 acc_401k = results["accumulation_401k"]
 acc_roth = results["accumulation_roth"]
+acc_split = results["accumulation_split"]
 dist_401k = results["distribution_401k"]
 dist_roth = results["distribution_roth"]
+dist_split = results["distribution_split"]
 
 # --- Combine Results ---
 combined_trad = combine_simulation_results(acc_401k, dist_401k)
 combined_roth = combine_simulation_results(acc_roth, dist_roth)
+combined_split = combine_simulation_results(acc_split, dist_split)
 
 # --- Summary Metrics ---
 render_summary_metrics(
@@ -97,7 +101,19 @@ roth_data = roth_data.melt(
 )
 roth_data["Account"] = roth_data["Strategy"] + " - " + roth_data["Account_Type"]
 
-all_data = pd.concat([trad_data, roth_data])
+split_data = combined_split[
+    ["Age", "Balance_PreTax", "Balance_Roth", "Balance_Taxable"]
+].copy()
+split_data["Strategy"] = f"Split ({config['roth_split_percent']:.0%})"
+split_data = split_data.melt(
+    id_vars=["Age", "Strategy"],
+    value_vars=["Balance_PreTax", "Balance_Roth", "Balance_Taxable"],
+    var_name="Account_Type",
+    value_name="Balance",
+)
+split_data["Account"] = split_data["Strategy"] + " - " + split_data["Account_Type"]
+
+all_data = pd.concat([trad_data, roth_data, split_data])
 
 st.altair_chart(create_hero_chart(all_data), use_container_width=True)
 
@@ -113,12 +129,14 @@ with col_c1:
     # Filter for distribution phase
     dist_trad = combined_trad[combined_trad["Phase"] == "Distribution"]
     dist_roth = combined_roth[combined_roth["Phase"] == "Distribution"]
+    dist_split = combined_split[combined_split["Phase"] == "Distribution"]
 
     cf_dist_comp = pd.DataFrame(
         {
             "Age": dist_trad["Age"],
             "Traditional": dist_trad["Net_Income"],
             "Roth": dist_roth["Net_Income"],
+            "Split": dist_split["Net_Income"],
         }
     ).melt("Age", var_name="Strategy", value_name="Income")
     st.altair_chart(
@@ -298,10 +316,15 @@ with col_m3:
 st.markdown("---")
 st.header("🔍 Detailed Data")
 
-tab1, tab2 = st.tabs(["Traditional 401k Data", "Roth 401k Data"])
+tab1, tab2, tab3 = st.tabs(
+    ["Traditional 401k Data", "Roth 401k Data", "Split Strategy Data"]
+)
 
 with tab1:
     st.dataframe(combined_trad, hide_index=True)
 
 with tab2:
     st.dataframe(combined_roth, hide_index=True)
+
+with tab3:
+    st.dataframe(combined_split, hide_index=True)

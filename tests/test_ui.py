@@ -22,10 +22,10 @@ def test_render_sidebar(mock_st):
         2.0,
         10,
         0,
-        0,
+        50,
         7.0,
         5.0,
-    ]  # Raise, Contrib%, Match%, MatchLimit, AccRet, RetRet
+    ]  # Raise, Match%, MatchLimit, RothSplit, AccRet, RetRet
     mock_st.sidebar.radio.return_value = "Custom Amount"
     mock_st.sidebar.checkbox.return_value = True
 
@@ -37,6 +37,7 @@ def test_render_sidebar(mock_st):
     assert config["annual_income"] == 100000
     assert not config["use_max_contribution"]
     assert config["invest_tax_savings"]
+    assert config["roth_split_percent"] == 0.5
 
 
 @patch("app.ui.st")
