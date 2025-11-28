@@ -40,8 +40,14 @@ def test_get_contribution_limit():
     assert limits_2024_old["catchup"] == 7500
 
     # Test inflation
+    # 23000 * 1.025 = 23575 -> Rounds to 23500
     limits_2025 = get_contribution_limit(35, 2025, inflation_rate=0.025)
-    assert limits_2025["base"] == 23000 * 1.025
+    assert limits_2025["base"] == 23500
+
+    # Test rounding up
+    # 23000 * 1.04 = 23920 -> Rounds to 24000
+    limits_high_inf = get_contribution_limit(35, 2025, inflation_rate=0.04)
+    assert limits_high_inf["base"] == 24000
 
 
 def test_run_full_simulation_sanity():
@@ -140,3 +146,36 @@ def test_pretax_balance_growth():
     # Check that PreTax balance is growing
     assert acc_401k.iloc[0]["Balance_PreTax"] > 0
     assert acc_401k.iloc[-1]["Balance_PreTax"] > 0
+
+    # Check for new tax columns
+    assert "Marginal_Tax_Rate" in acc_401k.columns
+    assert "Effective_Tax_Rate" in acc_401k.columns
+    assert "Federal_Income_Tax" in acc_401k.columns
+    assert "Tax_On_Brokerage_Gains" in acc_401k.columns
+    assert "Gross_Income" in acc_401k.columns
+    assert "Total_Tax" in acc_401k.columns
+
+    # Verify values are reasonable
+    assert 0 <= acc_401k.iloc[0]["Marginal_Tax_Rate"] <= 1.0
+    assert 0 <= acc_401k.iloc[0]["Effective_Tax_Rate"] <= 1.0
+    assert acc_401k.iloc[0]["Federal_Income_Tax"] > 0
+
+
+def test_combine_simulation_results():
+    from app.analysis import combine_simulation_results
+    import pandas as pd
+
+    acc_df = pd.DataFrame({"Year": [0, 1], "Age": [30, 31], "Balance": [100, 200]})
+    dist_df = pd.DataFrame({"Year": [0, 1], "Age": [32, 33], "Balance": [150, 100]})
+
+    combined = combine_simulation_results(acc_df, dist_df)
+
+    assert len(combined) == 4
+    assert "Phase" in combined.columns
+    assert combined.iloc[0]["Phase"] == "Accumulation"
+    assert combined.iloc[2]["Phase"] == "Distribution"
+    # Check Year continuity
+    assert combined.iloc[2]["Year"] == 2
+    assert combined.iloc[3]["Year"] == 3
+    # Check Age
+    assert combined.iloc[2]["Age"] == 32

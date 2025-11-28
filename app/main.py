@@ -6,7 +6,7 @@ import os
 # Add project root to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from app.analysis import run_full_simulation
+from app.analysis import run_full_simulation, combine_simulation_results
 from app.ui import render_sidebar, render_summary_metrics
 from app.charts import (
     create_hero_chart,
@@ -58,6 +58,10 @@ acc_roth = results["accumulation_roth"]
 dist_401k = results["distribution_401k"]
 dist_roth = results["distribution_roth"]
 
+# --- Combine Results ---
+combined_trad = combine_simulation_results(acc_401k, dist_401k)
+combined_roth = combine_simulation_results(acc_roth, dist_roth)
+
 # --- Summary Metrics ---
 render_summary_metrics(
     acc_401k,
@@ -73,12 +77,7 @@ st.markdown("---")
 st.header("📈 Lifetime Wealth Trajectory")
 
 # Prepare data for Hero Chart
-trad_data = pd.concat(
-    [
-        acc_401k[["Age", "Balance_PreTax", "Balance_Taxable"]],
-        dist_401k[["Age", "Balance_PreTax", "Balance_Taxable"]],
-    ]
-)
+trad_data = combined_trad[["Age", "Balance_PreTax", "Balance_Taxable"]].copy()
 trad_data["Strategy"] = "Traditional 401k"
 trad_data = trad_data.melt(
     id_vars=["Age", "Strategy"],
@@ -88,12 +87,7 @@ trad_data = trad_data.melt(
 )
 trad_data["Account"] = trad_data["Strategy"] + " - " + trad_data["Account_Type"]
 
-roth_data = pd.concat(
-    [
-        acc_roth[["Age", "Balance_Roth", "Balance_PreTax"]],
-        dist_roth[["Age", "Balance_Roth", "Balance_PreTax"]],
-    ]
-)
+roth_data = combined_roth[["Age", "Balance_Roth", "Balance_PreTax"]].copy()
 roth_data["Strategy"] = "Roth 401k"
 roth_data = roth_data.melt(
     id_vars=["Age", "Strategy"],
@@ -107,11 +101,6 @@ all_data = pd.concat([trad_data, roth_data])
 
 st.altair_chart(create_hero_chart(all_data), use_container_width=True)
 
-with st.expander("Debug Data"):
-    st.write("Traditional 401k Data Head:")
-    st.write(acc_401k[["Age", "Balance_PreTax", "Balance_Taxable"]].head())
-    st.write("Melted Trad Data Head:")
-    st.write(trad_data.head())
 
 # --- Cashflow & Advantage ---
 st.markdown("---")
@@ -121,10 +110,14 @@ col_c1, col_c2 = st.columns(2)
 
 with col_c1:
     st.subheader("Net Spendable Income Comparison")
+    # Filter for distribution phase
+    dist_trad = combined_trad[combined_trad["Phase"] == "Distribution"]
+    dist_roth = combined_roth[combined_roth["Phase"] == "Distribution"]
+
     cf_dist_comp = pd.DataFrame(
         {
-            "Age": dist_401k["Age"],
-            "Traditional": dist_401k["Net_Income"],
+            "Age": dist_trad["Age"],
+            "Traditional": dist_trad["Net_Income"],
             "Roth": dist_roth["Net_Income"],
         }
     ).melt("Age", var_name="Strategy", value_name="Income")
@@ -134,10 +127,18 @@ with col_c1:
 
 with col_c2:
     st.subheader("Cumulative Advantage (Trad - Roth)")
+    # Re-filter to ensure alignment (should be aligned by index if from same simulation run)
+    dist_trad = combined_trad[combined_trad["Phase"] == "Distribution"].reset_index(
+        drop=True
+    )
+    dist_roth = combined_roth[combined_roth["Phase"] == "Distribution"].reset_index(
+        drop=True
+    )
+
     adv_data = pd.DataFrame(
         {
-            "Age": dist_401k["Age"],
-            "Diff": dist_401k["Net_Income"] - dist_roth["Net_Income"],
+            "Age": dist_trad["Age"],
+            "Diff": dist_trad["Net_Income"] - dist_roth["Net_Income"],
         }
     )
     adv_data["Cumulative Advantage"] = adv_data["Diff"].cumsum()
@@ -146,29 +147,34 @@ with col_c2:
     )
 
 st.subheader("Annual Net Cash Flow (In/Out of Account)")
-cf_io_trad = pd.concat(
-    [
-        acc_401k[["Age", "Contribution", "Match"]].assign(
-            Flow="In", Amount=lambda x: x["Contribution"] + x["Match"]
-        ),
-        dist_401k[["Age", "Gross_Withdrawal"]].assign(
-            Flow="Out", Amount=lambda x: -x["Gross_Withdrawal"]
-        ),
-    ]
+# In: Contribution + Match
+# Out: -Gross_Withdrawal
+cf_io_trad = combined_trad.copy()
+cf_io_trad["Flow"] = cf_io_trad["Phase"].apply(
+    lambda x: "In" if x == "Accumulation" else "Out"
 )
+cf_io_trad["Amount"] = cf_io_trad.apply(
+    lambda x: (x["Contribution"] + x["Match"])
+    if x["Phase"] == "Accumulation"
+    else -x["Gross_Withdrawal"],
+    axis=1,
+)
+cf_io_trad = cf_io_trad[["Age", "Flow", "Amount"]]
 cf_io_trad["Strategy"] = "Traditional"
 
-cf_io_roth = pd.concat(
-    [
-        acc_roth[["Age", "Contribution", "Match"]].assign(
-            Flow="In", Amount=lambda x: x["Contribution"] + x["Match"]
-        ),
-        dist_roth[["Age", "Gross_Withdrawal"]].assign(
-            Flow="Out", Amount=lambda x: -x["Gross_Withdrawal"]
-        ),
-    ]
+cf_io_roth = combined_roth.copy()
+cf_io_roth["Flow"] = cf_io_roth["Phase"].apply(
+    lambda x: "In" if x == "Accumulation" else "Out"
 )
+cf_io_roth["Amount"] = cf_io_roth.apply(
+    lambda x: (x["Contribution"] + x["Match"])
+    if x["Phase"] == "Accumulation"
+    else -x["Gross_Withdrawal"],
+    axis=1,
+)
+cf_io_roth = cf_io_roth[["Age", "Flow", "Amount"]]
 cf_io_roth["Strategy"] = "Roth"
+
 cf_io_all = pd.concat([cf_io_trad, cf_io_roth])
 
 st.altair_chart(create_net_cashflow_chart(cf_io_all), use_container_width=True)
@@ -181,28 +187,35 @@ col_g1, col_g2 = st.columns(2)
 
 with col_g1:
     st.subheader("💰 Wealth Composition (Trad)")
-    comp_trad = pd.concat(
-        [
-            acc_401k[["Age", "Balance_PreTax", "Balance_Taxable"]],
-            dist_401k[["Age", "Balance_PreTax", "Balance_Taxable"]],
-        ]
-    ).melt("Age", var_name="Account", value_name="Balance")
+    comp_trad = combined_trad[["Age", "Balance_PreTax", "Balance_Taxable"]].melt(
+        "Age", var_name="Account", value_name="Balance"
+    )
     st.altair_chart(
         create_wealth_composition_chart(comp_trad, "Trad"), use_container_width=True
     )
 
     st.subheader("💵 Cashflow: Net Spendable")
-    cf_acc = acc_401k.copy()
-    cf_acc["Net_Liquidity"] = cf_acc["Income"] - cf_acc["Contribution"]
-    cf_dist = dist_401k.copy()
-    cf_dist["Net_Liquidity"] = cf_dist["Net_Income"]
-    cf_combined = pd.concat(
-        [cf_acc[["Age", "Net_Liquidity"]], cf_dist[["Age", "Net_Liquidity"]]]
+    # Net Spendable = Gross_Income - Contribution - Total_Tax (Accumulation)
+    # Net Spendable = Net_Income (Distribution)
+    # But wait, in Accumulation, Gross_Income is Salary.
+    # In Distribution, Gross_Income is Withdrawal.
+    # The chart should show "Net Liquidity" available to spend.
+
+    cf_combined = combined_trad.copy()
+    cf_combined["Net_Liquidity"] = cf_combined.apply(
+        lambda x: (x["Gross_Income"] - x["Contribution"] - x["Total_Tax"])
+        if x["Phase"] == "Accumulation"
+        else x["Net_Income"],
+        axis=1,
     )
-    st.altair_chart(create_cashflow_chart(cf_combined), use_container_width=True)
+    st.altair_chart(
+        create_cashflow_chart(cf_combined[["Age", "Net_Liquidity"]]),
+        use_container_width=True,
+    )
 
     st.subheader("📥 Annual Contributions")
-    contrib_data = acc_401k[["Age", "Contribution", "Match"]].melt(
+    acc_only_trad = combined_trad[combined_trad["Phase"] == "Accumulation"]
+    contrib_data = acc_only_trad[["Age", "Contribution", "Match"]].melt(
         "Age", var_name="Type", value_name="Amount"
     )
     st.altair_chart(create_contributions_chart(contrib_data), use_container_width=True)
@@ -211,10 +224,13 @@ with col_g1:
     st.caption(
         "Effective Tax Rate during retirement (Taxes / Gross Withdrawal). For Roth, taxes were paid upfront, so rate is low/zero."
     )
+    dist_trad = combined_trad[combined_trad["Phase"] == "Distribution"]
+    dist_roth = combined_roth[combined_roth["Phase"] == "Distribution"]
+
     etr_data = pd.DataFrame(
         {
-            "Age": dist_401k["Age"],
-            "Traditional": dist_401k["Effective_Tax_Rate"],
+            "Age": dist_trad["Age"],
+            "Traditional": dist_trad["Effective_Tax_Rate"],
             "Roth": dist_roth["Effective_Tax_Rate"],
         }
     ).melt("Age", var_name="Strategy", value_name="Rate")
@@ -223,18 +239,16 @@ with col_g1:
 
 with col_g2:
     st.subheader("💰 Wealth Composition (Roth)")
-    comp_roth = pd.concat(
-        [
-            acc_roth[["Age", "Balance_Roth", "Balance_PreTax"]],
-            dist_roth[["Age", "Balance_Roth", "Balance_PreTax"]],
-        ]
-    ).melt("Age", var_name="Account", value_name="Balance")
+    comp_roth = combined_roth[["Age", "Balance_Roth", "Balance_PreTax"]].melt(
+        "Age", var_name="Account", value_name="Balance"
+    )
     st.altair_chart(
         create_wealth_composition_chart(comp_roth, "Roth"), use_container_width=True
     )
 
     st.subheader("📤 Withdrawal Composition (Trad)")
-    wd_data = dist_401k[["Age", "Withdrawal_PreTax", "Withdrawal_Taxable"]].melt(
+    dist_trad = combined_trad[combined_trad["Phase"] == "Distribution"]
+    wd_data = dist_trad[["Age", "Withdrawal_PreTax", "Withdrawal_Taxable"]].melt(
         "Age", var_name="Source", value_name="Amount"
     )
     st.altair_chart(
@@ -242,20 +256,13 @@ with col_g2:
     )
 
     st.subheader("🏛️ Accumulated Taxes Paid")
-    acc_401k["Annual_Tax"] = acc_401k["Tax_Paid"]
-    dist_401k["Annual_Tax"] = dist_401k["Total_Tax"]
-    full_tax_401k = pd.concat(
-        [acc_401k[["Age", "Annual_Tax"]], dist_401k[["Age", "Annual_Tax"]]]
-    )
-    full_tax_401k["Cumulative_Tax"] = full_tax_401k["Annual_Tax"].cumsum()
+    # Use Total_Tax from the dataframe which is now consistent
+    full_tax_401k = combined_trad[["Age", "Total_Tax"]].copy()
+    full_tax_401k["Cumulative_Tax"] = full_tax_401k["Total_Tax"].cumsum()
     full_tax_401k["Strategy"] = "Traditional 401k"
 
-    acc_roth["Annual_Tax"] = acc_roth["Tax_Paid"]
-    dist_roth["Annual_Tax"] = dist_roth["Total_Tax"]
-    full_tax_roth = pd.concat(
-        [acc_roth[["Age", "Annual_Tax"]], dist_roth[["Age", "Annual_Tax"]]]
-    )
-    full_tax_roth["Cumulative_Tax"] = full_tax_roth["Annual_Tax"].cumsum()
+    full_tax_roth = combined_roth[["Age", "Total_Tax"]].copy()
+    full_tax_roth["Cumulative_Tax"] = full_tax_roth["Total_Tax"].cumsum()
     full_tax_roth["Strategy"] = "Roth 401k"
 
     tax_comp = pd.concat([full_tax_401k, full_tax_roth])
@@ -294,9 +301,7 @@ st.header("🔍 Detailed Data")
 tab1, tab2 = st.tabs(["Traditional 401k Data", "Roth 401k Data"])
 
 with tab1:
-    st.dataframe(acc_401k)
-    st.dataframe(dist_401k)
+    st.dataframe(combined_trad, hide_index=True)
 
 with tab2:
-    st.dataframe(acc_roth)
-    st.dataframe(dist_roth)
+    st.dataframe(combined_roth, hide_index=True)

@@ -88,9 +88,11 @@ def get_contribution_limit(
     base_year = 2024
     inflation_factor = (1 + inflation_rate) ** (year - base_year)
 
-    base_limit = BASE_CONTRIBUTION_LIMIT_2024 * inflation_factor
+    base_limit = round((BASE_CONTRIBUTION_LIMIT_2024 * inflation_factor) / 500) * 500
     catchup_limit = (
-        CATCHUP_CONTRIBUTION_LIMIT_2024 * inflation_factor if age >= CATCHUP_AGE else 0
+        round((CATCHUP_CONTRIBUTION_LIMIT_2024 * inflation_factor) / 500) * 500
+        if age >= CATCHUP_AGE
+        else 0
     )
 
     return {
@@ -252,18 +254,33 @@ def run_full_simulation(
         tax_on_gains = taxable_gains * capital_gains_rate
         balance_401k_taxable -= tax_on_gains
 
+        # Tax Rates
+        # For Traditional 401k, contribution is tax-deductible
+        taxable_income_for_fed_tax = current_annual_income - user_contribution
+        federal_income_tax = calculate_federal_tax(taxable_income_for_fed_tax)
+
+        total_tax = federal_income_tax + tax_on_gains
+
+        effective_tax_rate = (
+            total_tax / current_annual_income if current_annual_income > 0 else 0
+        )
+
         accumulation_401k.append(
             {
                 "Year": year,
                 "Age": age,
-                "Income": current_annual_income,
+                "Gross_Income": current_annual_income,
                 "Contribution": user_contribution,
                 "Match": match_amount,
                 "Balance_PreTax": balance_401k_trad,
                 "Balance_Taxable": balance_401k_taxable,
                 "Total_Balance": balance_401k_trad + balance_401k_taxable,
-                "Tax_Paid": tax_on_gains,
+                "Tax_On_Brokerage_Gains": tax_on_gains,
                 "Tax_Savings": tax_savings,
+                "Marginal_Tax_Rate": marginal_rate,
+                "Effective_Tax_Rate": effective_tax_rate,
+                "Federal_Income_Tax": federal_income_tax,
+                "Total_Tax": total_tax,
             }
         )
 
@@ -288,25 +305,39 @@ def run_full_simulation(
 
         # Roth Tax Calculation
         # The user contributes 'user_contribution' AFTER tax.
-        # We need to find the Pre-Tax equivalent to calculate the tax paid.
-        # PreTax = Contribution / (1 - MarginalRate)
-        # Tax = PreTax - Contribution
+        # Taxable Income is the full Gross Income.
+        federal_income_tax = calculate_federal_tax(current_annual_income)
+
+        # We also tracked "Income_Tax_Paid_On_Contribution" separately for analysis,
+        # but it is part of the Federal Income Tax.
+        # Total Tax for Roth strategy in accumulation is just the Federal Income Tax
+        # (assuming no taxable brokerage account in this simplified comparison).
+        total_tax = federal_income_tax
+
         marginal_rate = calculate_marginal_tax_rate(current_annual_income)
         roth_pretax_equivalent = user_contribution / (1 - marginal_rate)
         roth_tax_paid = roth_pretax_equivalent - user_contribution
+
+        effective_tax_rate = (
+            total_tax / current_annual_income if current_annual_income > 0 else 0
+        )
 
         accumulation_roth.append(
             {
                 "Year": year,
                 "Age": age,
-                "Income": current_annual_income,
+                "Gross_Income": current_annual_income,
                 "Contribution": user_contribution,
                 "Match": match_amount,
                 "Balance_Roth": roth_strat_balance_roth,
                 "Balance_PreTax": roth_strat_balance_pretax,
                 "Total_Balance": roth_strat_balance_roth + roth_strat_balance_pretax,
-                "Tax_Paid": roth_tax_paid,  # Track the upfront tax
+                "Income_Tax_Paid_On_Contribution": roth_tax_paid,  # Track the upfront tax
                 "Tax_Savings": 0,
+                "Marginal_Tax_Rate": marginal_rate,
+                "Effective_Tax_Rate": effective_tax_rate,
+                "Federal_Income_Tax": federal_income_tax,
+                "Total_Tax": total_tax,
             }
         )
 
@@ -445,6 +476,14 @@ def run_distribution_simulation(
         total_tax = tax_pretax + tax_taxable
         net_income = (w_pretax + w_roth + w_taxable) - total_tax
 
+        # Marginal Rate on Withdrawal (using Gross Withdrawal as proxy for income level)
+        # Note: This is an approximation. True marginal rate depends on taxable income.
+        # For PreTax, taxable income is w_pretax.
+        # For Taxable, it's capital gains (which has different rates).
+        # For Roth, it's 0.
+        # Let's report the Marginal Rate based on the Taxable Income (w_pretax).
+        marginal_rate_dist = calculate_marginal_tax_rate(w_pretax)
+
         results.append(
             {
                 "Year": year,
@@ -453,16 +492,51 @@ def run_distribution_simulation(
                 "Balance_Roth": max(0, curr_roth),
                 "Balance_Taxable": max(0, curr_taxable),
                 "Total_Balance": max(0, curr_total),
+                "Gross_Income": w_pretax
+                + w_roth
+                + w_taxable,  # Gross Withdrawal is the "Income"
                 "Gross_Withdrawal": w_pretax + w_roth + w_taxable,
                 "Withdrawal_PreTax": w_pretax,
                 "Withdrawal_Roth": w_roth,
                 "Withdrawal_Taxable": w_taxable,
+                "Federal_Income_Tax": tax_pretax,
+                "Tax_On_Brokerage_Gains": tax_taxable,
                 "Total_Tax": total_tax,
                 "Net_Income": net_income,
                 "Effective_Tax_Rate": total_tax / (w_pretax + w_roth + w_taxable)
                 if (w_pretax + w_roth + w_taxable) > 0
                 else 0,
+                "Marginal_Tax_Rate": marginal_rate_dist,
             }
         )
 
     return results
+
+
+def combine_simulation_results(
+    acc_df: pd.DataFrame, dist_df: pd.DataFrame
+) -> pd.DataFrame:
+    """
+    Combines accumulation and distribution dataframes into a single view.
+    """
+    acc_df = acc_df.copy()
+    dist_df = dist_df.copy()
+
+    acc_df["Phase"] = "Accumulation"
+    dist_df["Phase"] = "Distribution"
+
+    # Adjust Year in distribution to be continuous
+    if not acc_df.empty:
+        last_acc_year = acc_df["Year"].max()
+        dist_df["Year"] = dist_df["Year"] + last_acc_year + 1
+
+    combined = pd.concat([acc_df, dist_df], ignore_index=True)
+    combined = combined.fillna(0)
+
+    # Reorder columns: Age, Year, Phase, then the rest
+    cols = ["Age", "Year", "Phase"] + [
+        c for c in combined.columns if c not in ["Age", "Year", "Phase"]
+    ]
+    combined = combined[cols]
+
+    return combined
