@@ -12,32 +12,36 @@ from app.ui import render_sidebar, render_summary_metrics
 def test_render_sidebar(mock_st):
     # Setup mock return values for sidebar inputs
     mock_st.sidebar.number_input.side_effect = [
-        30,
-        60,
-        90,
-        100000,
-        23000,
-    ]  # Age, RetAge, FinalAge, Income, Contribution
+        25,  # Current Age
+        65,  # Ret Age
+        90,  # Final Age
+        80000,  # Income
+        # Contribution input is skipped if mode is Percentage
+    ]
     mock_st.sidebar.slider.side_effect = [
-        2.0,
-        10,
-        0,
+        2.0,  # Raise
+        10,  # Contribution % (since default mode is Percentage)
+        50,  # Match %
+        6,  # Match Limit
         100,  # Invest Tax Savings %
-        50,
-        7.0,
-        5.0,
+        50,  # Roth Split
+        8.0,  # Acc Ret
+        6.0,  # Ret Ret
         0.0,  # Extra buffer
         0.0,  # Extra buffer
-    ]  # Raise, Match%, MatchLimit, InvestTax%, RothSplit, AccRet, RetRet
-    mock_st.sidebar.radio.return_value = "Custom Amount"
+    ]
+    mock_st.sidebar.radio.return_value = "Percentage of Income"
     mock_st.sidebar.checkbox.return_value = True
 
     config = render_sidebar()
 
     # Check return values
-    assert config["current_age"] == 30
-    assert config["retirement_age"] == 60
-    assert config["annual_income"] == 100000
+    assert config["current_age"] == 25
+    assert config["retirement_age"] == 65
+    assert config["annual_income"] == 80000
+    assert config["contribution_input"] == 0.10
+    assert config["match_percent"] == 50
+    assert config["match_limit"] == 6
     assert config["invest_tax_savings_percent"] == 1.0  # Default 100%
     assert config["roth_split_percent"] == 0.5  # Default 50%
 

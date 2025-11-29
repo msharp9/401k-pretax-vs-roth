@@ -36,7 +36,7 @@ def render_sidebar():
 
     contribution_mode = st.sidebar.radio(
         "Contribution Amount",
-        ["Max Out Limits", "Custom Amount", "Percentage of Income"],
+        ["Percentage of Income", "Max Out Limits", "Custom Amount"],
     )
 
     use_max_contribution = False
@@ -46,7 +46,7 @@ def render_sidebar():
         use_max_contribution = True
     elif contribution_mode == "Custom Amount":
         contribution_input = st.sidebar.number_input(
-            "Annual Contribution ($)", min_value=0, value=23500, step=1000
+            "Annual Contribution ($)", min_value=0, value=10000, step=1000
         )
     else:
         pct = st.sidebar.slider("Contribution %", 0, 50, 10)
@@ -58,11 +58,11 @@ def render_sidebar():
         "Employer Match % (on contribution)",
         0,
         100,
-        0,
+        50,
         help="Employer matches X% of your contribution...",
     )
     match_limit = st.sidebar.slider(
-        "Match Limit % (of salary)", 0, 20, 0, help="...up to Y% of your salary."
+        "Match Limit % (of salary)", 0, 20, 6, help="...up to Y% of your salary."
     )
 
     # Strategy Settings
