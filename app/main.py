@@ -53,7 +53,7 @@ results = run_full_simulation(
     employer_match_limit=config["match_limit"] / 100.0
     if config["match_limit"] > 0
     else 0,
-    invest_tax_savings=config["invest_tax_savings"],
+    invest_tax_savings_percent=config["invest_tax_savings_percent"],
     annual_raise_percent=config["annual_raise"],
     roth_split_percent=config["roth_split_percent"],
 )
@@ -79,7 +79,7 @@ render_summary_metrics(
     dist_roth,
     dist_split,
     config["retirement_age"],
-    config["invest_tax_savings"],
+    config["invest_tax_savings_percent"],
 )
 
 

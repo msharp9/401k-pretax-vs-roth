@@ -86,7 +86,7 @@ def test_high_income_catchup_mandate():
         use_max_contribution=True,
         match_percent=0.0,
         match_limit=0.0,
-        invest_tax_savings=False,
+        invest_tax_savings_percent=0.0,
         annual_raise=0.0,
         inflation_rate=0.0,
         capital_gains_rate=0.15,
@@ -128,9 +128,9 @@ def test_run_full_simulation_sanity():
     assert acc_401k.iloc[-1]["Total_Balance"] > acc_401k.iloc[0]["Total_Balance"]
 
 
-def test_invest_tax_savings_toggle():
-    # Run with investment
-    results_invest = run_full_simulation(
+def test_invest_tax_savings_percentage():
+    # Run with 100% investment
+    results_100 = run_full_simulation(
         annual_income=100000,
         current_age=30,
         retirement_age=60,
@@ -141,12 +141,12 @@ def test_invest_tax_savings_toggle():
         use_max_contribution=True,
         employer_match_percent=0.0,
         employer_match_limit=0.0,
-        invest_tax_savings=True,
+        invest_tax_savings_percent=1.0,
         annual_raise_percent=0.0,
     )
 
-    # Run without investment
-    results_spend = run_full_simulation(
+    # Run with 50% investment
+    results_50 = run_full_simulation(
         annual_income=100000,
         current_age=30,
         retirement_age=60,
@@ -157,18 +157,43 @@ def test_invest_tax_savings_toggle():
         use_max_contribution=True,
         employer_match_percent=0.0,
         employer_match_limit=0.0,
-        invest_tax_savings=False,
+        invest_tax_savings_percent=0.5,
         annual_raise_percent=0.0,
     )
 
-    bal_invest = results_invest["accumulation_401k"].iloc[-1]["Total_Balance"]
-    bal_spend = results_spend["accumulation_401k"].iloc[-1]["Total_Balance"]
+    # Run with 0% investment
+    results_0 = run_full_simulation(
+        annual_income=100000,
+        current_age=30,
+        retirement_age=60,
+        final_age=90,
+        accumulation_return=0.07,
+        retirement_return=0.05,
+        contribution_input=1.0,
+        use_max_contribution=True,
+        employer_match_percent=0.0,
+        employer_match_limit=0.0,
+        invest_tax_savings_percent=0.0,
+        annual_raise_percent=0.0,
+    )
 
-    # Investing tax savings should result in higher balance
-    assert bal_invest > bal_spend
+    bal_100 = results_100["accumulation_401k"].iloc[-1]["Total_Balance"]
+    bal_50 = results_50["accumulation_401k"].iloc[-1]["Total_Balance"]
+    bal_0 = results_0["accumulation_401k"].iloc[-1]["Total_Balance"]
 
-    # Without investment, taxable balance should be 0 (or close to it if we had initial balance, but here 0)
-    assert results_spend["accumulation_401k"].iloc[-1]["Balance_Taxable"] == 0
+    # 100% > 50% > 0%
+    assert bal_100 > bal_50 > bal_0
+
+    # Taxable balance check
+    taxable_100 = results_100["accumulation_401k"].iloc[-1]["Balance_Taxable"]
+    taxable_50 = results_50["accumulation_401k"].iloc[-1]["Balance_Taxable"]
+    taxable_0 = results_0["accumulation_401k"].iloc[-1]["Balance_Taxable"]
+
+    assert taxable_100 > taxable_50 > taxable_0
+    assert taxable_0 == 0
+    # 50% should be roughly half of 100% (ignoring compounding differences slightly, but roughly)
+    # Actually, compounding makes it not exactly half, but it should be significant.
+    assert taxable_50 > 0
 
 
 def test_pretax_balance_growth():
@@ -183,7 +208,7 @@ def test_pretax_balance_growth():
         use_max_contribution=True,
         employer_match_percent=0.0,
         employer_match_limit=0.0,
-        invest_tax_savings=True,
+        invest_tax_savings_percent=1.0,
         annual_raise_percent=0.0,
     )
 
@@ -242,7 +267,7 @@ def test_split_strategy():
         use_max_contribution=False,
         match_percent=0.0,
         match_limit=0.0,
-        invest_tax_savings=False,
+        invest_tax_savings_percent=0.0,
         annual_raise=0.0,
         inflation_rate=0.0,
         capital_gains_rate=0.15,
@@ -273,7 +298,7 @@ def test_split_strategy():
         use_max_contribution=False,
         match_percent=0.0,
         match_limit=0.0,
-        invest_tax_savings=False,
+        invest_tax_savings_percent=0.0,
         annual_raise=0.0,
         inflation_rate=0.0,
         capital_gains_rate=0.15,
@@ -293,7 +318,7 @@ def test_split_strategy():
         use_max_contribution=False,
         match_percent=0.0,
         match_limit=0.0,
-        invest_tax_savings=False,
+        invest_tax_savings_percent=0.0,
         annual_raise=0.0,
         inflation_rate=0.0,
         capital_gains_rate=0.15,

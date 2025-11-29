@@ -67,10 +67,16 @@ def render_sidebar():
 
     # Strategy Settings
     st.sidebar.subheader("Strategy Settings")
-    invest_tax_savings = st.sidebar.checkbox(
-        "Invest Tax Savings?",
-        value=True,
-        help="If checked, the tax savings from Traditional 401k contributions are invested in a taxable brokerage account. If unchecked, they are assumed to be spent.",
+    invest_tax_savings_percent = (
+        st.sidebar.slider(
+            "Invest Tax Savings (%)",
+            min_value=0,
+            max_value=100,
+            value=100,
+            step=5,
+            help="Percentage of tax savings from Traditional 401k contributions to invest in a taxable brokerage account.",
+        )
+        / 100.0
     )
 
     roth_split = st.sidebar.slider(
@@ -115,7 +121,7 @@ def render_sidebar():
         "use_max_contribution": use_max_contribution,
         "match_percent": match_percent,
         "match_limit": match_limit,
-        "invest_tax_savings": invest_tax_savings,
+        "invest_tax_savings_percent": invest_tax_savings_percent,
         "accumulation_return": accumulation_return,
         "retirement_return": retirement_return,
         "roth_split_percent": roth_split / 100.0,
@@ -130,7 +136,7 @@ def render_summary_metrics(
     dist_roth,
     dist_split,
     retirement_age,
-    invest_tax_savings,
+    invest_tax_savings_percent,
 ):
     """
     Renders the executive summary metrics.
@@ -219,9 +225,9 @@ def render_summary_metrics(
 
         st.success(f"**{winner} Wins!** +${diff:,.0f}/yr over {runner_up}")
 
-        if invest_tax_savings:
+        if invest_tax_savings_percent > 0:
             st.info(
-                "Assumes tax savings from Traditional 401k are invested in a taxable account."
+                f"Assumes {invest_tax_savings_percent:.0%} of tax savings from Traditional 401k are invested in a taxable account."
             )
         else:
             st.warning(

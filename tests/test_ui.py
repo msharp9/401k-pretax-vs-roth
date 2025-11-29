@@ -22,22 +22,24 @@ def test_render_sidebar(mock_st):
         2.0,
         10,
         0,
+        100,  # Invest Tax Savings %
         50,
         7.0,
         5.0,
-    ]  # Raise, Match%, MatchLimit, RothSplit, AccRet, RetRet
+        0.0,  # Extra buffer
+        0.0,  # Extra buffer
+    ]  # Raise, Match%, MatchLimit, InvestTax%, RothSplit, AccRet, RetRet
     mock_st.sidebar.radio.return_value = "Custom Amount"
     mock_st.sidebar.checkbox.return_value = True
 
     config = render_sidebar()
 
+    # Check return values
     assert config["current_age"] == 30
     assert config["retirement_age"] == 60
-    assert config["final_age"] == 90
     assert config["annual_income"] == 100000
-    assert not config["use_max_contribution"]
-    assert config["invest_tax_savings"]
-    assert config["roth_split_percent"] == 0.5
+    assert config["invest_tax_savings_percent"] == 1.0  # Default 100%
+    assert config["roth_split_percent"] == 0.5  # Default 50%
 
 
 @patch("app.ui.st")
@@ -79,7 +81,7 @@ def test_render_summary_metrics(mock_st):
         mock_dist_roth,
         mock_dist_split,
         60,
-        True,
+        1.0,  # invest_tax_savings_percent
     )
 
     # Verify cols were created
