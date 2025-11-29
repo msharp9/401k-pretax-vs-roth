@@ -32,6 +32,13 @@ def render_sidebar():
     annual_income = st.sidebar.number_input(
         "Annual Income ($)", min_value=30000, value=DEFAULT_INCOME, step=5000
     )
+    retirement_income = st.sidebar.number_input(
+        "Annual Income in Retirement ($)",
+        min_value=0,
+        value=0,
+        step=5000,
+        help="Other taxable income during retirement (e.g., pension, rental income, part-time work).",
+    )
     annual_raise = st.sidebar.slider("Annual Raise (%)", 0.0, 10.0, 2.0, 0.1) / 100.0
 
     contribution_mode = st.sidebar.radio(
@@ -116,6 +123,7 @@ def render_sidebar():
         "retirement_age": retirement_age,
         "final_age": final_age,
         "annual_income": annual_income,
+        "retirement_income": retirement_income,
         "annual_raise": annual_raise,
         "contribution_input": contribution_input,
         "use_max_contribution": use_max_contribution,

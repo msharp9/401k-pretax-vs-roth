@@ -16,6 +16,7 @@ def test_render_sidebar(mock_st):
         65,  # Ret Age
         90,  # Final Age
         80000,  # Income
+        0,  # Retirement Income
         # Contribution input is skipped if mode is Percentage
     ]
     mock_st.sidebar.slider.side_effect = [
@@ -39,6 +40,7 @@ def test_render_sidebar(mock_st):
     assert config["current_age"] == 25
     assert config["retirement_age"] == 65
     assert config["annual_income"] == 80000
+    assert config["retirement_income"] == 0
     assert config["contribution_input"] == 0.10
     assert config["match_percent"] == 50
     assert config["match_limit"] == 6

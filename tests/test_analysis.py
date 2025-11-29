@@ -128,6 +128,52 @@ def test_run_full_simulation_sanity():
     assert acc_401k.iloc[-1]["Total_Balance"] > acc_401k.iloc[0]["Total_Balance"]
 
 
+def test_retirement_income_impact():
+    # Run with 0 retirement income
+    res_0 = run_full_simulation(
+        annual_income=100000,
+        current_age=50,
+        retirement_age=60,
+        final_age=70,
+        accumulation_return=0.05,
+        retirement_return=0.05,
+        contribution_input=1.0,
+        use_max_contribution=True,
+        employer_match_percent=0.0,
+        employer_match_limit=0.0,
+        retirement_income=0.0,
+    )
+
+    # Run with 50k retirement income
+    res_50k = run_full_simulation(
+        annual_income=100000,
+        current_age=50,
+        retirement_age=60,
+        final_age=70,
+        accumulation_return=0.05,
+        retirement_return=0.05,
+        contribution_input=1.0,
+        use_max_contribution=True,
+        employer_match_percent=0.0,
+        employer_match_limit=0.0,
+        retirement_income=50000.0,
+    )
+
+    # Check Traditional Strategy (Taxable withdrawals)
+    dist_0 = res_0["distribution_401k"]
+    dist_50k = res_50k["distribution_401k"]
+
+    # Tax should be higher with extra income
+    assert dist_50k["Federal_Income_Tax"].sum() > dist_0["Federal_Income_Tax"].sum()
+
+    # Net Income should be higher overall because we added 50k/yr
+    assert dist_50k["Net_Income"].mean() > dist_0["Net_Income"].mean()
+
+    # Effective Tax Rate on withdrawals + income should be higher (progressive tax)
+    # Note: Effective Tax Rate logic in analysis.py is Total Tax / Gross Income
+    assert dist_50k["Effective_Tax_Rate"].mean() > dist_0["Effective_Tax_Rate"].mean()
+
+
 def test_invest_tax_savings_percentage():
     # Run with 100% investment
     results_100 = run_full_simulation(

@@ -190,6 +190,7 @@ def run_full_simulation(
     employer_match_limit: float,
     invest_tax_savings_percent: float = 1.0,
     annual_raise_percent: float = 0.0,
+    retirement_income: float = 0.0,
     inflation_rate: float = DEFAULT_INFLATION_RATE,
     capital_gains_rate: float = DEFAULT_CAPITAL_GAINS_RATE,
     roth_split_percent: float = 0.5,
@@ -260,6 +261,7 @@ def run_full_simulation(
             retirement_age,
             final_age,
             retirement_return,
+            retirement_income,
         )
 
     dist_401k = run_dist_for_acc(accumulation_401k)
@@ -445,6 +447,7 @@ def run_distribution_simulation(
     retirement_age: int,
     final_age: int,
     return_rate: float,
+    retirement_income: float = 0.0,
 ) -> List[Dict]:
     years = final_age - retirement_age
     total_balance = start_pretax + start_roth + start_taxable
@@ -506,23 +509,28 @@ def run_distribution_simulation(
 
         # Calculate Tax
         # PreTax -> Ordinary Income
-        tax_pretax = calculate_federal_tax(w_pretax)
+        # Retirement Income -> Ordinary Income
+        # We assume retirement_income is taxable ordinary income (like pension)
+        ordinary_income = w_pretax + retirement_income
+        tax_ordinary = calculate_federal_tax(ordinary_income)
 
         # Taxable -> Capital Gains (Assume 50% is gains as per notebook)
         tax_taxable = (w_taxable * 0.5) * DEFAULT_CAPITAL_GAINS_RATE
 
         # Roth -> 0 Tax
 
-        total_tax = tax_pretax + tax_taxable
-        net_income = (w_pretax + w_roth + w_taxable) - total_tax
+        total_tax = tax_ordinary + tax_taxable
+
+        # Net Income = (Withdrawals + Retirement Income) - Tax
+        net_income = (w_pretax + w_roth + w_taxable + retirement_income) - total_tax
 
         # Marginal Rate on Withdrawal (using Gross Withdrawal as proxy for income level)
         # Note: This is an approximation. True marginal rate depends on taxable income.
         # For PreTax, taxable income is w_pretax.
         # For Taxable, it's capital gains (which has different rates).
         # For Roth, it's 0.
-        # Let's report the Marginal Rate based on the Taxable Income (w_pretax).
-        marginal_rate_dist = calculate_marginal_tax_rate(w_pretax)
+        # Let's report the Marginal Rate based on the Taxable Ordinary Income.
+        marginal_rate_dist = calculate_marginal_tax_rate(ordinary_income)
 
         results.append(
             {
@@ -534,12 +542,14 @@ def run_distribution_simulation(
                 "Total_Balance": max(0, curr_total),
                 "Gross_Income": w_pretax
                 + w_roth
-                + w_taxable,  # Gross Withdrawal is the "Income"
+                + w_taxable
+                + retirement_income,  # Gross Withdrawal + Other Income
                 "Gross_Withdrawal": w_pretax + w_roth + w_taxable,
+                "Retirement_Income": retirement_income,
                 "Withdrawal_PreTax": w_pretax,
                 "Withdrawal_Roth": w_roth,
                 "Withdrawal_Taxable": w_taxable,
-                "Federal_Income_Tax": tax_pretax,
+                "Federal_Income_Tax": tax_ordinary,
                 "Tax_On_Brokerage_Gains": tax_taxable,
                 "Total_Tax": total_tax,
                 "Net_Income": net_income,
