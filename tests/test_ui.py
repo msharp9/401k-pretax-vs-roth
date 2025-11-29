@@ -53,6 +53,9 @@ def test_render_summary_metrics(mock_st):
     mock_acc_roth = MagicMock()
     mock_acc_roth.iloc.__getitem__.return_value = {"Total_Balance": 1000000}
 
+    mock_acc_split = MagicMock()
+    mock_acc_split.iloc.__getitem__.return_value = {"Total_Balance": 1000000}
+
     mock_dist_401k = MagicMock()
     mock_dist_401k.__getitem__.return_value.mean.return_value = 50000
     mock_dist_401k.__getitem__.return_value.sum.return_value = 10000
@@ -61,14 +64,30 @@ def test_render_summary_metrics(mock_st):
     mock_dist_roth.__getitem__.return_value.mean.return_value = 55000
     mock_dist_roth.__getitem__.return_value.sum.return_value = 0
 
-    # Mock columns to return 3 mocks
-    mock_st.columns.return_value = [MagicMock(), MagicMock(), MagicMock()]
+    mock_dist_split = MagicMock()
+    mock_dist_split.__getitem__.return_value.mean.return_value = 60000  # Split wins
+    mock_dist_split.__getitem__.return_value.sum.return_value = 5000
+
+    # Mock columns to return 4 mocks
+    mock_st.columns.return_value = [MagicMock(), MagicMock(), MagicMock(), MagicMock()]
 
     render_summary_metrics(
-        mock_acc_401k, mock_acc_roth, mock_dist_401k, mock_dist_roth, 60, True
+        mock_acc_401k,
+        mock_acc_roth,
+        mock_acc_split,
+        mock_dist_401k,
+        mock_dist_roth,
+        mock_dist_split,
+        60,
+        True,
     )
 
     # Verify cols were created
-    mock_st.columns.assert_called_with(3)
+    mock_st.columns.assert_called_with(4)
     # Verify metrics were displayed
-    assert mock_st.metric.call_count >= 6
+    assert mock_st.metric.call_count >= 9
+
+    # Verify success message (Split wins)
+    # We can check if st.success was called with a string containing "Split Wins"
+    args, _ = mock_st.success.call_args
+    assert "Split Wins" in args[0]

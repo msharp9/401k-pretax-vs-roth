@@ -9,16 +9,13 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from app.analysis import run_full_simulation, combine_simulation_results
 from app.ui import render_sidebar, render_summary_metrics
 from app.charts import (
-    create_hero_chart,
-    create_wealth_composition_chart,
+    create_gross_income_chart,
+    create_total_taxes_chart,
+    create_net_wealth_chart,
+    create_total_balance_chart,
     create_cashflow_chart,
-    create_contributions_chart,
-    create_effective_tax_rate_chart,
-    create_net_income_comparison_chart,
-    create_withdrawal_composition_chart,
-    create_accumulated_taxes_chart,
-    create_cumulative_advantage_chart,
-    create_net_cashflow_chart,
+    create_tax_rate_chart,
+    create_inflow_outflow_chart,
 )
 
 # Set page config
@@ -70,246 +67,142 @@ combined_split = combine_simulation_results(acc_split, dist_split)
 render_summary_metrics(
     acc_401k,
     acc_roth,
+    acc_split,
     dist_401k,
     dist_roth,
+    dist_split,
     config["retirement_age"],
     config["invest_tax_savings"],
 )
 
+
+# --- Visualizations ---
+# --- Data Preparation for Charts ---
+# We need to add cumulative columns to the combined dataframes
+def prepare_chart_data(df, strategy_name):
+    df = df.copy()
+    df["Strategy"] = strategy_name
+    df["Cumulative_Gross_Income"] = df["Gross_Income"].cumsum()
+    df["Cumulative_Total_Tax"] = df["Total_Tax"].cumsum()
+
+    # Net Income in Accumulation = Gross - Tax - Contribution (What you take home)
+    # Net Income in Distribution = Net_Income (What you take home)
+    # Wait, "Net Wealth Accumulation" usually means "Assets".
+    # But user asked for "Net Wealth Accumulation" AND "Total Balance".
+    # And "Gross Dollars Earned".
+    # So "Net Wealth Accumulation" likely means "Cumulative Net Income".
+
+    # Let's calculate Annual Net Income for Accumulation if not present
+    # In accumulation phase of analysis.py, we didn't explicitly save "Net_Income" (spendable).
+    # We saved Gross, Contribution, Tax.
+    # So Net = Gross - Contribution - Tax.
+
+    def calc_net(row):
+        if row["Phase"] == "Accumulation":
+            return row["Gross_Income"] - row["Contribution"] - row["Total_Tax"]
+        else:
+            return row["Net_Income"]
+
+    df["Net_Income"] = df.apply(calc_net, axis=1)
+    df["Cumulative_Net_Income"] = df["Net_Income"].cumsum()
+
+    return df
+
+
+trad_chart_data = prepare_chart_data(combined_trad, "Traditional")
+roth_chart_data = prepare_chart_data(combined_roth, "Roth")
+split_chart_data = prepare_chart_data(
+    combined_split, f"Split ({config['roth_split_percent']:.0%})"
+)
+
+all_chart_data = pd.concat([trad_chart_data, roth_chart_data, split_chart_data])
+
 # --- Visualizations ---
 st.markdown("---")
-st.header("📈 Lifetime Wealth Trajectory")
 
-# Prepare data for Hero Chart
-trad_data = combined_trad[["Age", "Balance_PreTax", "Balance_Taxable"]].copy()
-trad_data["Strategy"] = "Traditional 401k"
-trad_data = trad_data.melt(
+# 1. Gross Dollars Earned
+st.altair_chart(create_gross_income_chart(all_chart_data), use_container_width=True)
+
+# 2. Total Taxes Paid
+st.altair_chart(create_total_taxes_chart(all_chart_data), use_container_width=True)
+
+# 3. Net Wealth Accumulation
+st.altair_chart(create_net_wealth_chart(all_chart_data), use_container_width=True)
+
+# 4. Total Balance
+st.altair_chart(create_total_balance_chart(all_chart_data), use_container_width=True)
+
+# 5. Cashflow
+st.altair_chart(create_cashflow_chart(all_chart_data), use_container_width=True)
+
+# 6. Tax Rates
+st.altair_chart(create_tax_rate_chart(all_chart_data), use_container_width=True)
+
+# 7. Contributions and Withdrawals
+# Prepare data for this specific chart
+# We want lines for Contribution and Gross_Withdrawal
+# Melt the data
+flow_data = all_chart_data.melt(
     id_vars=["Age", "Strategy"],
-    value_vars=["Balance_PreTax", "Balance_Taxable"],
-    var_name="Account_Type",
-    value_name="Balance",
+    value_vars=["Contribution", "Gross_Withdrawal"],
+    var_name="Flow_Type",
+    value_name="Amount",
 )
-trad_data["Account"] = trad_data["Strategy"] + " - " + trad_data["Account_Type"]
-
-roth_data = combined_roth[["Age", "Balance_Roth", "Balance_PreTax"]].copy()
-roth_data["Strategy"] = "Roth 401k"
-roth_data = roth_data.melt(
-    id_vars=["Age", "Strategy"],
-    value_vars=["Balance_Roth", "Balance_PreTax"],
-    var_name="Account_Type",
-    value_name="Balance",
-)
-roth_data["Account"] = roth_data["Strategy"] + " - " + roth_data["Account_Type"]
-
-split_data = combined_split[
-    ["Age", "Balance_PreTax", "Balance_Roth", "Balance_Taxable"]
-].copy()
-split_data["Strategy"] = f"Split ({config['roth_split_percent']:.0%})"
-split_data = split_data.melt(
-    id_vars=["Age", "Strategy"],
-    value_vars=["Balance_PreTax", "Balance_Roth", "Balance_Taxable"],
-    var_name="Account_Type",
-    value_name="Balance",
-)
-split_data["Account"] = split_data["Strategy"] + " - " + split_data["Account_Type"]
-
-all_data = pd.concat([trad_data, roth_data, split_data])
-
-st.altair_chart(create_hero_chart(all_data), use_container_width=True)
-
-
-# --- Cashflow & Advantage ---
-st.markdown("---")
-st.header("💵 Cashflow & Advantage")
-
-col_c1, col_c2 = st.columns(2)
-
-with col_c1:
-    st.subheader("Net Spendable Income Comparison")
-    # Filter for distribution phase
-    dist_trad = combined_trad[combined_trad["Phase"] == "Distribution"]
-    dist_roth = combined_roth[combined_roth["Phase"] == "Distribution"]
-    dist_split = combined_split[combined_split["Phase"] == "Distribution"]
-
-    cf_dist_comp = pd.DataFrame(
-        {
-            "Age": dist_trad["Age"],
-            "Traditional": dist_trad["Net_Income"],
-            "Roth": dist_roth["Net_Income"],
-            "Split": dist_split["Net_Income"],
-        }
-    ).melt("Age", var_name="Strategy", value_name="Income")
-    st.altair_chart(
-        create_net_income_comparison_chart(cf_dist_comp), use_container_width=True
-    )
-
-with col_c2:
-    st.subheader("Cumulative Advantage (Trad - Roth)")
-    # Re-filter to ensure alignment (should be aligned by index if from same simulation run)
-    dist_trad = combined_trad[combined_trad["Phase"] == "Distribution"].reset_index(
-        drop=True
-    )
-    dist_roth = combined_roth[combined_roth["Phase"] == "Distribution"].reset_index(
-        drop=True
-    )
-
-    adv_data = pd.DataFrame(
-        {
-            "Age": dist_trad["Age"],
-            "Diff": dist_trad["Net_Income"] - dist_roth["Net_Income"],
-        }
-    )
-    adv_data["Cumulative Advantage"] = adv_data["Diff"].cumsum()
-    st.altair_chart(
-        create_cumulative_advantage_chart(adv_data), use_container_width=True
-    )
-
-st.subheader("Annual Net Cash Flow (In/Out of Account)")
-# In: Contribution + Match
-# Out: -Gross_Withdrawal
-cf_io_trad = combined_trad.copy()
-cf_io_trad["Flow"] = cf_io_trad["Phase"].apply(
-    lambda x: "In" if x == "Accumulation" else "Out"
-)
-cf_io_trad["Amount"] = cf_io_trad.apply(
-    lambda x: (x["Contribution"] + x["Match"])
-    if x["Phase"] == "Accumulation"
-    else -x["Gross_Withdrawal"],
-    axis=1,
-)
-cf_io_trad = cf_io_trad[["Age", "Flow", "Amount"]]
-cf_io_trad["Strategy"] = "Traditional"
-
-cf_io_roth = combined_roth.copy()
-cf_io_roth["Flow"] = cf_io_roth["Phase"].apply(
-    lambda x: "In" if x == "Accumulation" else "Out"
-)
-cf_io_roth["Amount"] = cf_io_roth.apply(
-    lambda x: (x["Contribution"] + x["Match"])
-    if x["Phase"] == "Accumulation"
-    else -x["Gross_Withdrawal"],
-    axis=1,
-)
-cf_io_roth = cf_io_roth[["Age", "Flow", "Amount"]]
-cf_io_roth["Strategy"] = "Roth"
-
-cf_io_all = pd.concat([cf_io_trad, cf_io_roth])
-
-st.altair_chart(create_net_cashflow_chart(cf_io_all), use_container_width=True)
-
-# --- Deep Dive Grid ---
-st.markdown("---")
-st.header("🔍 Deep Dive Analysis")
-
-col_g1, col_g2 = st.columns(2)
-
-with col_g1:
-    st.subheader("💰 Wealth Composition (Trad)")
-    comp_trad = combined_trad[["Age", "Balance_PreTax", "Balance_Taxable"]].melt(
-        "Age", var_name="Account", value_name="Balance"
-    )
-    st.altair_chart(
-        create_wealth_composition_chart(comp_trad, "Trad"), use_container_width=True
-    )
-
-    st.subheader("💵 Cashflow: Net Spendable")
-    # Net Spendable = Gross_Income - Contribution - Total_Tax (Accumulation)
-    # Net Spendable = Net_Income (Distribution)
-    # But wait, in Accumulation, Gross_Income is Salary.
-    # In Distribution, Gross_Income is Withdrawal.
-    # The chart should show "Net Liquidity" available to spend.
-
-    cf_combined = combined_trad.copy()
-    cf_combined["Net_Liquidity"] = cf_combined.apply(
-        lambda x: (x["Gross_Income"] - x["Contribution"] - x["Total_Tax"])
-        if x["Phase"] == "Accumulation"
-        else x["Net_Income"],
-        axis=1,
-    )
-    st.altair_chart(
-        create_cashflow_chart(cf_combined[["Age", "Net_Liquidity"]]),
-        use_container_width=True,
-    )
-
-    st.subheader("📥 Annual Contributions")
-    acc_only_trad = combined_trad[combined_trad["Phase"] == "Accumulation"]
-    contrib_data = acc_only_trad[["Age", "Contribution", "Match"]].melt(
-        "Age", var_name="Type", value_name="Amount"
-    )
-    st.altair_chart(create_contributions_chart(contrib_data), use_container_width=True)
-
-    st.subheader("📉 Effective Tax Rate (Lifetime)")
-    st.caption(
-        "Effective Tax Rate during retirement (Taxes / Gross Withdrawal). For Roth, taxes were paid upfront, so rate is low/zero."
-    )
-    dist_trad = combined_trad[combined_trad["Phase"] == "Distribution"]
-    dist_roth = combined_roth[combined_roth["Phase"] == "Distribution"]
-
-    etr_data = pd.DataFrame(
-        {
-            "Age": dist_trad["Age"],
-            "Traditional": dist_trad["Effective_Tax_Rate"],
-            "Roth": dist_roth["Effective_Tax_Rate"],
-        }
-    ).melt("Age", var_name="Strategy", value_name="Rate")
-    st.altair_chart(create_effective_tax_rate_chart(etr_data), use_container_width=True)
-
-
-with col_g2:
-    st.subheader("💰 Wealth Composition (Roth)")
-    comp_roth = combined_roth[["Age", "Balance_Roth", "Balance_PreTax"]].melt(
-        "Age", var_name="Account", value_name="Balance"
-    )
-    st.altair_chart(
-        create_wealth_composition_chart(comp_roth, "Roth"), use_container_width=True
-    )
-
-    st.subheader("📤 Withdrawal Composition (Trad)")
-    dist_trad = combined_trad[combined_trad["Phase"] == "Distribution"]
-    wd_data = dist_trad[["Age", "Withdrawal_PreTax", "Withdrawal_Taxable"]].melt(
-        "Age", var_name="Source", value_name="Amount"
-    )
-    st.altair_chart(
-        create_withdrawal_composition_chart(wd_data), use_container_width=True
-    )
-
-    st.subheader("🏛️ Accumulated Taxes Paid")
-    # Use Total_Tax from the dataframe which is now consistent
-    full_tax_401k = combined_trad[["Age", "Total_Tax"]].copy()
-    full_tax_401k["Cumulative_Tax"] = full_tax_401k["Total_Tax"].cumsum()
-    full_tax_401k["Strategy"] = "Traditional 401k"
-
-    full_tax_roth = combined_roth[["Age", "Total_Tax"]].copy()
-    full_tax_roth["Cumulative_Tax"] = full_tax_roth["Total_Tax"].cumsum()
-    full_tax_roth["Strategy"] = "Roth 401k"
-
-    tax_comp = pd.concat([full_tax_401k, full_tax_roth])
-    st.altair_chart(create_accumulated_taxes_chart(tax_comp), use_container_width=True)
+st.altair_chart(create_inflow_outflow_chart(flow_data), use_container_width=True)
 
 # --- Additional Metrics ---
 st.markdown("---")
-st.subheader("📊 Additional Metrics")
+st.subheader("📊 Other Key Metrics")
 
-col_m1, col_m2, col_m3 = st.columns(3)
+col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+
+
+# Calculate Investment Earnings
+# Earnings = Final Balance + Total Withdrawals - Total Contributions - Total Match
+def calculate_earnings(acc_df, dist_df):
+    final_balance = dist_df.iloc[-1]["Total_Balance"]
+    total_withdrawals = dist_df["Gross_Withdrawal"].sum()
+    total_contributions = acc_df["Contribution"].sum()
+    total_match = acc_df["Match"].sum()
+    return final_balance + total_withdrawals - total_contributions - total_match
+
+
+trad_earnings = calculate_earnings(acc_401k, dist_401k)
+roth_earnings = calculate_earnings(acc_roth, dist_roth)
+split_earnings = calculate_earnings(acc_split, dist_split)
 
 with col_m1:
-    st.metric("Total Contributions (Trad)", f"${acc_401k['Contribution'].sum():,.0f}")
-    st.metric("Total Match Received", f"${acc_401k['Match'].sum():,.0f}")
+    st.metric("Total Contributions (All)", f"${acc_401k['Contribution'].sum():,.0f}")
+    st.metric("Total Match Received (All)", f"${acc_401k['Match'].sum():,.0f}")
 
 with col_m2:
-    st.metric(
-        "Total Taxes Paid (Trad)", f"${full_tax_401k.iloc[-1]['Cumulative_Tax']:,.0f}"
-    )
-    st.metric(
-        "Total Taxes Paid (Roth)", f"${full_tax_roth.iloc[-1]['Cumulative_Tax']:,.0f}"
-    )
+    st.metric("Total Investment Earnings (Trad)", f"${trad_earnings:,.0f}")
+    st.metric("Total Investment Earnings (Roth)", f"${roth_earnings:,.0f}")
+    st.metric("Total Investment Earnings (Split)", f"${split_earnings:,.0f}")
 
 with col_m3:
+    # Use the chart data which has the cumulative columns
+    trad_total_tax = trad_chart_data.iloc[-1]["Cumulative_Total_Tax"]
+    roth_total_tax = roth_chart_data.iloc[-1]["Cumulative_Total_Tax"]
+    split_total_tax = split_chart_data.iloc[-1]["Cumulative_Total_Tax"]
+
+    st.metric("Total Taxes Paid (Trad)", f"${trad_total_tax:,.0f}")
+    st.metric("Total Taxes Paid (Roth)", f"${roth_total_tax:,.0f}")
+    st.metric("Total Taxes Paid (Split)", f"${split_total_tax:,.0f}")
+
+with col_m4:
+    # Lifetime Average Effective Tax Rate
     st.metric(
-        "Avg Effective Tax Rate (Trad)", f"{dist_401k['Effective_Tax_Rate'].mean():.2%}"
+        "Lifetime Avg Effective Tax Rate (Trad)",
+        f"{trad_chart_data['Effective_Tax_Rate'].mean():.2%}",
     )
     st.metric(
-        "Avg Effective Tax Rate (Roth)", f"{dist_roth['Effective_Tax_Rate'].mean():.2%}"
+        "Lifetime Avg Effective Tax Rate (Roth)",
+        f"{roth_chart_data['Effective_Tax_Rate'].mean():.2%}",
+    )
+    st.metric(
+        "Lifetime Avg Effective Tax Rate (Split)",
+        f"{split_chart_data['Effective_Tax_Rate'].mean():.2%}",
     )
 
 # --- Detailed Analysis Tabs ---

@@ -123,32 +123,39 @@ def render_sidebar():
 
 
 def render_summary_metrics(
-    acc_401k, acc_roth, dist_401k, dist_roth, retirement_age, invest_tax_savings
+    acc_401k,
+    acc_roth,
+    acc_split,
+    dist_401k,
+    dist_roth,
+    dist_split,
+    retirement_age,
+    invest_tax_savings,
 ):
     """
     Renders the executive summary metrics.
     """
     st.header("📊 Executive Summary")
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
 
     # 401k Metrics
     with col1:
-        st.subheader("Traditional 401k Strategy")
+        st.subheader("Traditional 401k")
         final_acc_bal_401k = acc_401k.iloc[-1]["Total_Balance"]
         st.metric(
             "Peak Wealth (Age {})".format(retirement_age), f"${final_acc_bal_401k:,.0f}"
         )
 
         avg_net_income_401k = dist_401k["Net_Income"].mean()
-        st.metric("Avg Annual Net Income (Retirement)", f"${avg_net_income_401k:,.0f}")
+        st.metric("Avg Annual Net Income", f"${avg_net_income_401k:,.0f}")
 
         total_tax_401k = dist_401k["Total_Tax"].sum()
-        st.metric("Total Taxes Paid (Retirement)", f"${total_tax_401k:,.0f}")
+        st.metric("Total Taxes (Retirement)", f"${total_tax_401k:,.0f}")
 
     # Roth Metrics
     with col2:
-        st.subheader("Roth 401k Strategy")
+        st.subheader("Roth 401k")
         final_acc_bal_roth = acc_roth.iloc[-1]["Total_Balance"]
         delta_bal = final_acc_bal_roth - final_acc_bal_401k
         st.metric(
@@ -160,31 +167,63 @@ def render_summary_metrics(
         avg_net_income_roth = dist_roth["Net_Income"].mean()
         delta_inc = avg_net_income_roth - avg_net_income_401k
         st.metric(
-            "Avg Annual Net Income (Retirement)",
+            "Avg Annual Net Income",
             f"${avg_net_income_roth:,.0f}",
             delta=f"{delta_inc:,.0f}",
         )
 
         total_tax_roth = dist_roth["Total_Tax"].sum()
-        st.metric("Total Taxes Paid (Retirement)", f"${total_tax_roth:,.0f}")
+        st.metric("Total Taxes (Retirement)", f"${total_tax_roth:,.0f}")
+
+    # Split Metrics
+    with col3:
+        st.subheader("Split Strategy")
+        final_acc_bal_split = acc_split.iloc[-1]["Total_Balance"]
+        delta_bal_split = final_acc_bal_split - final_acc_bal_401k
+        st.metric(
+            "Peak Wealth (Age {})".format(retirement_age),
+            f"${final_acc_bal_split:,.0f}",
+            delta=f"{delta_bal_split:,.0f}",
+        )
+
+        avg_net_income_split = dist_split["Net_Income"].mean()
+        delta_inc_split = avg_net_income_split - avg_net_income_401k
+        st.metric(
+            "Avg Annual Net Income",
+            f"${avg_net_income_split:,.0f}",
+            delta=f"{delta_inc_split:,.0f}",
+        )
+
+        total_tax_split = dist_split["Total_Tax"].sum()
+        st.metric("Total Taxes (Retirement)", f"${total_tax_split:,.0f}")
 
     # Analysis
-    with col3:
+    with col4:
         st.subheader("Analysis")
-        if avg_net_income_roth > avg_net_income_401k:
-            st.success(
-                f"**Roth Wins!** You get **${delta_inc:,.0f}** more per year in retirement."
-            )
-        else:
-            st.success(
-                f"**Traditional Wins!** You get **${-delta_inc:,.0f}** more per year in retirement."
-            )
+        # Determine winner among Trad, Roth, and Split
+        incomes = {
+            "Traditional": avg_net_income_401k,
+            "Roth": avg_net_income_roth,
+            "Split": avg_net_income_split,
+        }
+
+        winner = max(incomes, key=incomes.get)
+        winner_val = incomes[winner]
+
+        # Find runner-up
+        del incomes[winner]
+        runner_up = max(incomes, key=incomes.get)
+        runner_up_val = incomes[runner_up]
+
+        diff = winner_val - runner_up_val
+
+        st.success(f"**{winner} Wins!** +${diff:,.0f}/yr over {runner_up}")
 
         if invest_tax_savings:
             st.info(
-                "This assumes you invest the tax savings from the Traditional 401k into a taxable brokerage account."
+                "Assumes tax savings from Traditional 401k are invested in a taxable account."
             )
         else:
             st.warning(
-                "You are NOT investing the tax savings from the Traditional 401k. This significantly penalizes the Traditional strategy."
+                "You are NOT investing the tax savings. This penalizes the Traditional strategy."
             )
