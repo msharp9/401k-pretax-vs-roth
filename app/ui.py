@@ -46,7 +46,7 @@ def render_sidebar():
         use_max_contribution = True
     elif contribution_mode == "Custom Amount":
         contribution_input = st.sidebar.number_input(
-            "Annual Contribution ($)", min_value=0, value=23000, step=1000
+            "Annual Contribution ($)", min_value=0, value=23500, step=1000
         )
     else:
         pct = st.sidebar.slider("Contribution %", 0, 50, 10)

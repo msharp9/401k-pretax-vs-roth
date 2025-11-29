@@ -3,6 +3,7 @@ from app.analysis import (
     calculate_marginal_tax_rate,
     get_contribution_limit,
     run_full_simulation,
+    simulate_accumulation_strategy,
 )
 
 
@@ -32,22 +33,69 @@ def test_calculate_marginal_tax_rate():
 
 
 def test_get_contribution_limit():
-    limits_2024 = get_contribution_limit(35, 2024)
-    assert limits_2024["base"] == 23000
-    assert limits_2024["catchup"] == 0
-
-    limits_2024_old = get_contribution_limit(55, 2024)
-    assert limits_2024_old["catchup"] == 7500
-
-    # Test inflation
-    # 23000 * 1.025 = 23575 -> Rounds to 23500
-    limits_2025 = get_contribution_limit(35, 2025, inflation_rate=0.025)
+    # 2025 Base
+    limits_2025 = get_contribution_limit(30, 2025)
     assert limits_2025["base"] == 23500
+    assert limits_2025["catchup"] == 0
 
-    # Test rounding up
-    # 23000 * 1.04 = 23920 -> Rounds to 24000
-    limits_high_inf = get_contribution_limit(35, 2025, inflation_rate=0.04)
-    assert limits_high_inf["base"] == 24000
+    # 2026 Base (Fixed at 24500)
+    limits_2026 = get_contribution_limit(30, 2026)
+    assert limits_2026["base"] == 24500
+
+    # Test Inflation on 2027
+    # 2026 Base = 24500
+    # Inflation 4%
+    # 24500 * 1.04 = 25480 -> Rounds to 25500
+    limits_2027 = get_contribution_limit(30, 2027, inflation_rate=0.04)
+    assert limits_2027["base"] == 25500
+
+    # Catch-up Age 50
+    limits_50_2025 = get_contribution_limit(50, 2025)
+    assert limits_50_2025["catchup"] == 7500
+
+    limits_50_2026 = get_contribution_limit(50, 2026)
+    assert limits_50_2026["catchup"] == 8000
+
+    # Catch-up Age 60-63
+    limits_60 = get_contribution_limit(60, 2025)
+    assert limits_60["catchup"] == 11250
+
+    limits_63 = get_contribution_limit(63, 2025)
+    assert limits_63["catchup"] == 11250
+
+    limits_64 = get_contribution_limit(64, 2025)
+    assert limits_64["catchup"] == 7500
+
+
+def test_high_income_catchup_mandate():
+    # High income earner (>150k)
+    # Age 60 (eligible for 11250 catchup)
+    # Strategy: 100% Traditional (roth_split=0.0)
+    # Max contribution
+
+    # Base 23500 + Catchup 11250 = 34750
+    # Base goes to Trad (23500)
+    # Catchup MUST go to Roth (11250)
+
+    res = simulate_accumulation_strategy(
+        annual_income=200000,
+        current_age=60,
+        years=1,
+        return_rate=0.0,
+        contribution_input=1.0,  # Max
+        use_max_contribution=True,
+        match_percent=0.0,
+        match_limit=0.0,
+        invest_tax_savings=False,
+        annual_raise=0.0,
+        inflation_rate=0.0,
+        capital_gains_rate=0.15,
+        roth_split=0.0,  # Traditional Strategy
+    )
+
+    row = res.iloc[0]
+    assert row["Balance_PreTax"] == 23500
+    assert row["Balance_Roth"] == 11250  # Forced Roth catchup
 
 
 def test_run_full_simulation_sanity():

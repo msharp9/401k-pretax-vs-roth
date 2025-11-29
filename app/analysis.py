@@ -27,8 +27,13 @@ DEFAULT_INFLATION_RATE = 0.025
 DEFAULT_CAPITAL_GAINS_RATE = 0.15
 
 # Contribution Limits 2024
-BASE_CONTRIBUTION_LIMIT_2024 = 23000
-CATCHUP_CONTRIBUTION_LIMIT_2024 = 7500
+# Contribution Limits
+BASE_CONTRIBUTION_LIMIT_2025 = 23500
+BASE_CONTRIBUTION_LIMIT_2026 = 24500
+CATCHUP_CONTRIBUTION_LIMIT_2025 = 7500
+CATCHUP_CONTRIBUTION_LIMIT_2026 = 8000
+CATCHUP_60_63_LIMIT_2025 = 11250
+HIGH_INCOME_THRESHOLD_2025 = 150000
 CATCHUP_AGE = 50
 
 
@@ -85,15 +90,55 @@ def get_contribution_limit(
     """
     Get 401k contribution limits based on age and year, adjusted for inflation.
     """
-    base_year = 2024
-    inflation_factor = (1 + inflation_rate) ** (year - base_year)
+    # Base Limit Projection
+    if year == 2025:
+        base_limit = BASE_CONTRIBUTION_LIMIT_2025
+    elif year >= 2026:
+        # Anchor to 2026
+        inflation_factor = (1 + inflation_rate) ** (year - 2026)
+        base_limit = (
+            round((BASE_CONTRIBUTION_LIMIT_2026 * inflation_factor) / 500) * 500
+        )
+    else:
+        # Fallback for pre-2025 (shouldn't happen in sim but good for robustness)
+        base_limit = 23000
 
-    base_limit = round((BASE_CONTRIBUTION_LIMIT_2024 * inflation_factor) / 500) * 500
-    catchup_limit = (
-        round((CATCHUP_CONTRIBUTION_LIMIT_2024 * inflation_factor) / 500) * 500
-        if age >= CATCHUP_AGE
-        else 0
-    )
+    # Catch-up Limit Projection
+    if year == 2025:
+        std_catchup_limit = CATCHUP_CONTRIBUTION_LIMIT_2025
+        special_catchup_limit = CATCHUP_60_63_LIMIT_2025
+    elif year >= 2026:
+        # Anchor to 2026 for standard catchup
+        inflation_factor_catchup = (1 + inflation_rate) ** (year - 2026)
+        std_catchup_limit = (
+            round((CATCHUP_CONTRIBUTION_LIMIT_2026 * inflation_factor_catchup) / 500)
+            * 500
+        )
+
+        # Special catchup is 150% of standard catchup in 2025? Or indexed?
+        # The rule is "greater of $10,000 or 150% of the regular catch-up limit for 2024".
+        # Actually, for 2025 it's $11,250.
+        # For 2026, if standard is 8000, 150% is 12000?
+        # User said "if you are age 60 to 63, the $8,000 catch-up contribution is increased to $11,250."
+        # This implies 11,250 is fixed or the specific number for 2026?
+        # "Looking ahead to 2026... catch-up contribution is increased to $11,250."
+        # So I will use 11,250 for 2026 as well, indexed from 2025 base.
+        # Let's just index the 11,250 from 2025.
+        inflation_factor_2025 = (1 + inflation_rate) ** (year - 2025)
+        special_catchup_limit = (
+            round((CATCHUP_60_63_LIMIT_2025 * inflation_factor_2025) / 500) * 500
+        )
+    else:
+        std_catchup_limit = 7500
+        special_catchup_limit = (
+            7500  # No special catchup before 2025/2026 logic applies
+        )
+
+    catchup_limit = 0
+    if 60 <= age <= 63:
+        catchup_limit = special_catchup_limit
+    elif age >= CATCHUP_AGE:
+        catchup_limit = std_catchup_limit
 
     return {
         "base": base_limit,
@@ -254,23 +299,24 @@ def simulate_accumulation_strategy(
 
     for year in range(years):
         age = current_age + year
-        calendar_year = 2024 + year
+        calendar_year = 2025 + year
 
         # Grow Income
         current_annual_income = annual_income * ((1 + annual_raise) ** year)
 
         limits = get_contribution_limit(age, calendar_year, inflation_rate)
-        max_limit = limits["total"]
+        base_limit = limits["base"]
+        total_limit = limits["total"]
 
         # Determine user contribution
         if use_max_contribution:
-            user_contribution = max_limit
+            user_contribution = total_limit
         else:
             if contribution_input <= 1.0:
                 user_contribution = current_annual_income * contribution_input
             else:
                 user_contribution = contribution_input
-            user_contribution = min(user_contribution, max_limit)
+            user_contribution = min(user_contribution, total_limit)
 
         # Employer Match (Always PreTax)
         match_amount = 0
@@ -280,9 +326,36 @@ def simulate_accumulation_strategy(
             )
             match_amount = matchable_contribution * match_percent
 
-        # Split Contribution
-        roth_contribution = user_contribution * roth_split
-        trad_contribution = user_contribution * (1 - roth_split)
+        # Split Contribution Logic (High Income Rule)
+        # Check High Income Threshold (Indexed? Assuming yes)
+        inflation_factor_threshold = (1 + inflation_rate) ** (calendar_year - 2025)
+        high_income_threshold = (
+            round((HIGH_INCOME_THRESHOLD_2025 * inflation_factor_threshold) / 500) * 500
+        )
+
+        is_high_income = current_annual_income > high_income_threshold
+
+        # Determine how much is "Base" vs "Catch-up"
+        # Catch-up is the amount over the base limit
+        amount_base = min(user_contribution, base_limit)
+        amount_catchup = max(0, user_contribution - base_limit)
+
+        # Base portion follows the strategy split
+        base_roth = amount_base * roth_split
+        base_trad = amount_base * (1 - roth_split)
+
+        # Catch-up portion
+        if is_high_income and amount_catchup > 0:
+            # Mandated Roth for catch-up
+            catchup_roth = amount_catchup
+            catchup_trad = 0.0
+        else:
+            # Follows strategy split
+            catchup_roth = amount_catchup * roth_split
+            catchup_trad = amount_catchup * (1 - roth_split)
+
+        roth_contribution = base_roth + catchup_roth
+        trad_contribution = base_trad + catchup_trad
 
         # Invest
         balance_pretax += trad_contribution + match_amount

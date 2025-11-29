@@ -27,6 +27,13 @@ This tool compares the long-term impact of contributing to a **Traditional 401k*
 It simulates the accumulation phase (working years) and the distribution phase (retirement years), accounting for taxes, investment growth, and inflation.
 """)
 
+st.info("""
+**Note on Catch-up Contributions:**
+*   **Age 50+**: Standard catch-up contribution applies ($7,500 in 2025, $8,000 in 2026).
+*   **Age 60-63**: Special catch-up limit applies ($11,250 in 2025).
+*   **High Income Rule**: If your prior year wages exceed $145,000 (adjusted for inflation, ~$150k in 2025), all catch-up contributions **must** be made to a Roth account. This simulation automatically applies this rule.
+""")
+
 # --- Sidebar ---
 config = render_sidebar()
 
