@@ -15,6 +15,8 @@ def test_render_sidebar(mock_st):
         25,  # Current Age
         65,  # Ret Age
         90,  # Final Age
+        0,  # Current 401k Balance
+        0,  # Current Roth Balance
         80000,  # Income
         0,  # Retirement Income
         # Contribution input is skipped if mode is Percentage

@@ -57,6 +57,8 @@ results = run_full_simulation(
     annual_raise_percent=config["annual_raise"],
     retirement_income=config["retirement_income"],
     roth_split_percent=config["roth_split_percent"],
+    current_401k_balance=config["current_401k_balance"],
+    current_roth_balance=config["current_roth_balance"],
 )
 
 acc_401k = results["accumulation_401k"]

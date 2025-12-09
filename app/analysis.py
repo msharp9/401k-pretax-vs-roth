@@ -194,6 +194,8 @@ def run_full_simulation(
     inflation_rate: float = DEFAULT_INFLATION_RATE,
     capital_gains_rate: float = DEFAULT_CAPITAL_GAINS_RATE,
     roth_split_percent: float = 0.5,
+    current_401k_balance: float = 0.0,
+    current_roth_balance: float = 0.0,
 ) -> Dict[str, pd.DataFrame]:
     accumulation_years = retirement_age - current_age
     accumulation_years = retirement_age - current_age
@@ -214,6 +216,8 @@ def run_full_simulation(
         inflation_rate,
         capital_gains_rate,
         roth_split=0.0,
+        start_balance_pretax=current_401k_balance,
+        start_balance_roth=current_roth_balance,
     )
 
     # 2. Roth Strategy (100% Roth)
@@ -231,6 +235,8 @@ def run_full_simulation(
         inflation_rate,
         capital_gains_rate,
         roth_split=1.0,
+        start_balance_pretax=current_401k_balance,
+        start_balance_roth=current_roth_balance,
     )
 
     # 3. Split Strategy (User Defined Split)
@@ -248,6 +254,8 @@ def run_full_simulation(
         inflation_rate,
         capital_gains_rate,
         roth_split=roth_split_percent,
+        start_balance_pretax=current_401k_balance,
+        start_balance_roth=current_roth_balance,
     )
 
     # --- Distribution Phase ---
@@ -292,11 +300,13 @@ def simulate_accumulation_strategy(
     inflation_rate,
     capital_gains_rate,
     roth_split: float,  # 0.0 to 1.0
+    start_balance_pretax: float = 0.0,
+    start_balance_roth: float = 0.0,
 ) -> pd.DataFrame:
     results = []
 
-    balance_pretax = 0.0
-    balance_roth = 0.0
+    balance_pretax = start_balance_pretax
+    balance_roth = start_balance_roth
     balance_taxable = 0.0
 
     for year in range(years):

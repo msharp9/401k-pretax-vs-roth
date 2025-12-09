@@ -27,6 +27,15 @@ def render_sidebar():
         "Life Expectancy", min_value=70, max_value=110, value=DEFAULT_FINAL_AGE
     )
 
+    # Current Assets
+    st.sidebar.subheader("Current Assets")
+    current_401k_balance = st.sidebar.number_input(
+        "Current Traditional 401(k) Balance ($)", min_value=0, value=0, step=1000
+    )
+    current_roth_balance = st.sidebar.number_input(
+        "Current Roth 401(k) Balance ($)", min_value=0, value=0, step=1000
+    )
+
     # Income & Contributions
     st.sidebar.subheader("Income & Contributions")
     annual_income = st.sidebar.number_input(
@@ -133,6 +142,8 @@ def render_sidebar():
         "accumulation_return": accumulation_return,
         "retirement_return": retirement_return,
         "roth_split_percent": roth_split / 100.0,
+        "current_401k_balance": current_401k_balance,
+        "current_roth_balance": current_roth_balance,
     }
 
 
